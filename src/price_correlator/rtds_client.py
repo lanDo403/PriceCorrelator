@@ -108,7 +108,7 @@ class RtdsClient:
         self,
         websocket_url: str = RTDS_WS_URL,
         ping_interval_s: float = 20.0,
-        ping_timeout_s: float = 60.0,
+        ping_timeout_s: float | None = None,
     ) -> None:
         self.websocket_url = websocket_url
         self.ping_interval_s = ping_interval_s

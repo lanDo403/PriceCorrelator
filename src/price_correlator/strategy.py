@@ -15,6 +15,7 @@ from price_correlator.rtds_client import RtdsClient, build_subscribe_message
 
 PRICE_TO_BEAT_REFRESH_SECONDS = 10
 DEFAULT_RTDS_RECONNECT_DELAYS_SECONDS = (1.0, 2.0, 5.0, 10.0)
+DEFAULT_RTDS_MAX_SILENCE_SECONDS = 45.0
 _BTC_UPDOWN_SLUG_RE = re.compile(r"^(btc-updown-(\d+)m)-(\d+)$")
 
 
@@ -68,6 +69,14 @@ class StrategySummary:
     total_profit_usd: float
 
 
+@dataclass(frozen=True)
+class StrategyEventResult:
+    event_slug: str
+    end_timestamp_s: int
+    result: str
+    profit_usd: float
+
+
 @dataclass
 class _EventState:
     market: EventMarketInfo
@@ -92,18 +101,24 @@ class StrategyRunner:
         rtds_client: RtdsClient,
         clob_client: ClobClient,
         logger: Callable[[str], None] = print,
+        on_event_closed: Callable[[StrategyEventResult], None] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         now_seconds: Callable[[], int] = lambda: int(time.time()),
         reconnect_delays_seconds: tuple[float, ...] = DEFAULT_RTDS_RECONNECT_DELAYS_SECONDS,
+        max_tick_silence_seconds: float = DEFAULT_RTDS_MAX_SILENCE_SECONDS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._event_client = event_client
         self._rtds_client = rtds_client
         self._clob_client = clob_client
         self._log = logger
+        self._on_event_closed = on_event_closed
         self._monotonic = monotonic
         self._now_seconds = now_seconds
         self._reconnect_delays_seconds = reconnect_delays_seconds or (1.0,)
+        if max_tick_silence_seconds <= 0:
+            raise ValueError("max_tick_silence_seconds must be > 0.")
+        self._max_tick_silence_seconds = max_tick_silence_seconds
         self._sleep = sleep
         self._discover_latest_slug_fn: Callable[[int], Awaitable[str]] | None = None
         self._fetch_active_market_fn: Callable[[int, int], Awaitable[EventMarketInfo | None]] | None = None
@@ -123,6 +138,7 @@ class StrategyRunner:
 
         tick_stream = self._rtds_client.stream_ticks(config.symbol_pair).__aiter__()
         reconnect_attempt = 0
+        last_tick_at_monotonic = self._monotonic()
         pending_tick_task: asyncio.Task | None = None
         try:
             while self._monotonic() < deadline:
@@ -138,6 +154,24 @@ class StrategyRunner:
                     tick = await asyncio.wait_for(asyncio.shield(pending_tick_task), timeout=min(1.0, remaining))
                     pending_tick_task = None
                 except asyncio.TimeoutError:
+                    now = self._monotonic()
+                    if now - last_tick_at_monotonic >= self._max_tick_silence_seconds:
+                        if pending_tick_task is not None:
+                            pending_tick_task.cancel()
+                            with contextlib.suppress(asyncio.CancelledError, Exception):
+                                await pending_tick_task
+                            pending_tick_task = None
+                        reconnect_attempt += 1
+                        tick_stream = await self._reconnect_tick_stream(
+                            symbol_pair=config.symbol_pair,
+                            reconnect_attempt=reconnect_attempt,
+                            reason=(
+                                f"no ticks for {self._max_tick_silence_seconds:.1f}s"
+                            ),
+                            deadline=deadline,
+                        )
+                        if tick_stream is None:
+                            break
                     continue
                 except StopAsyncIteration:
                     pending_tick_task = None
@@ -156,6 +190,7 @@ class StrategyRunner:
                     continue
 
                 reconnect_attempt = 0
+                last_tick_at_monotonic = self._monotonic()
 
                 if tick.source != PriceSource.CHAINLINK:
                     continue
@@ -173,6 +208,15 @@ class StrategyRunner:
                     losses += 1
                 else:
                     skips += 1
+                if self._on_event_closed is not None:
+                    self._on_event_closed(
+                        StrategyEventResult(
+                            event_slug=state.market.slug,
+                            end_timestamp_s=state.market.end_timestamp_s,
+                            result=state.result,
+                            profit_usd=state.profit_usd,
+                        )
+                    )
 
                 try:
                     state = await self._advance_to_next_event_state(previous_state=state, config=config)

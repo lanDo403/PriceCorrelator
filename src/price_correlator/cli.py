@@ -10,10 +10,10 @@ from typing import Callable
 from price_correlator.clob_client import ClobClient
 from price_correlator.event_client import GammaEventsClient
 from price_correlator.rtds_client import RtdsClient
-from price_correlator.strategy import StrategyConfig, StrategyRunner, StrategySummary
+from price_correlator.strategy import StrategyConfig, StrategyEventResult, StrategyRunner, StrategySummary
 
 _RESULT_TOTAL_RE = re.compile(
-    r"^result_total(?:_cumulative)?: "
+    r"^result_total(?:_cumulative)?(?:_running)?: "
     r"events=(?P<events>\d+), "
     r"win=(?P<wins>\d+), "
     r"lose=(?P<losses>\d+), "
@@ -256,10 +256,24 @@ def _merge_summaries(base: StrategySummary, delta: StrategySummary) -> StrategyS
     )
 
 
+def _summary_from_event_result(event: StrategyEventResult) -> StrategySummary:
+    wins = 1 if event.result == "win" else 0
+    losses = 1 if event.result == "lose" else 0
+    skips = 1 if event.result not in {"win", "lose"} else 0
+    return StrategySummary(
+        total_events=1,
+        wins=wins,
+        losses=losses,
+        skips=skips,
+        total_profit_usd=event.profit_usd,
+    )
+
+
 async def _run_strategy_for_timeframe(
     args: argparse.Namespace,
     timeframe_minutes: int,
     logger: Callable[[str], None],
+    on_event_closed: Callable[[StrategyEventResult], None] | None = None,
 ) -> StrategySummary:
     config = _build_config(args, timeframe_minutes)
     async with GammaEventsClient(logger=logger) as event_client:
@@ -268,6 +282,7 @@ async def _run_strategy_for_timeframe(
             rtds_client=RtdsClient(),
             clob_client=ClobClient(),
             logger=logger,
+            on_event_closed=on_event_closed,
         )
         return await runner.run(config)
 
@@ -297,14 +312,80 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
         echo_to_console=echo_to_console,
     )
     previous_cumulative = _load_previous_cumulative_summary(args.result_log_file_path)
+    running_5m = _empty_summary()
+    running_15m = _empty_summary()
     result_logger("mode: run_both_timeframes")
     if alerts_enabled:
         result_logger(f"alerts_file: {args.alerts_file_path}")
 
+    def _log_running_totals() -> None:
+        running_total = _merge_summaries(running_5m, running_15m)
+        cumulative_running = _merge_summaries(previous_cumulative, running_total)
+        result_logger(
+            "result_total_running: "
+            f"events={running_total.total_events}, "
+            f"win={running_total.wins}, "
+            f"lose={running_total.losses}, "
+            f"skip={running_total.skips}, "
+            f"profit_usd={running_total.total_profit_usd:.2f}"
+        )
+        result_logger(
+            "result_total_cumulative_running: "
+            f"events={cumulative_running.total_events}, "
+            f"win={cumulative_running.wins}, "
+            f"lose={cumulative_running.losses}, "
+            f"skip={cumulative_running.skips}, "
+            f"profit_usd={cumulative_running.total_profit_usd:.2f}"
+        )
+
+    def _build_event_handler(timeframe_minutes: int) -> Callable[[StrategyEventResult], None]:
+        def _handle_event(event: StrategyEventResult) -> None:
+            nonlocal running_5m, running_15m
+            delta = _summary_from_event_result(event)
+            if timeframe_minutes == 5:
+                running_5m = _merge_summaries(running_5m, delta)
+                timeframe_running = running_5m
+            else:
+                running_15m = _merge_summaries(running_15m, delta)
+                timeframe_running = running_15m
+            result_logger(
+                "result_event: "
+                f"timeframe={timeframe_minutes}m, "
+                f"slug={event.event_slug}, "
+                f"result={event.result}, "
+                f"profit_usd={event.profit_usd:.2f}"
+            )
+            result_logger(
+                "result_running: "
+                f"timeframe={timeframe_minutes}m, "
+                f"events={timeframe_running.total_events}, "
+                f"win={timeframe_running.wins}, "
+                f"lose={timeframe_running.losses}, "
+                f"skip={timeframe_running.skips}, "
+                f"profit_usd={timeframe_running.total_profit_usd:.2f}"
+            )
+            _log_running_totals()
+
+        return _handle_event
+
     exit_code = 0
     try:
-        run_5m = asyncio.create_task(_run_strategy_for_timeframe(args=args, timeframe_minutes=5, logger=logger_5m))
-        run_15m = asyncio.create_task(_run_strategy_for_timeframe(args=args, timeframe_minutes=15, logger=logger_15m))
+        run_5m = asyncio.create_task(
+            _run_strategy_for_timeframe(
+                args=args,
+                timeframe_minutes=5,
+                logger=logger_5m,
+                on_event_closed=_build_event_handler(5),
+            )
+        )
+        run_15m = asyncio.create_task(
+            _run_strategy_for_timeframe(
+                args=args,
+                timeframe_minutes=15,
+                logger=logger_15m,
+                on_event_closed=_build_event_handler(15),
+            )
+        )
         results = await asyncio.gather(run_5m, run_15m, return_exceptions=True)
 
         total_events = 0

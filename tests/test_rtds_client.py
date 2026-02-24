@@ -160,5 +160,5 @@ async def test_stream_ticks_subscribes_and_yields(monkeypatch: pytest.MonkeyPatc
     assert fake_ws.sent_messages[0]["action"] == "subscribe"
     assert len(fake_ws.sent_messages[0]["subscriptions"]) == 2
     assert captured_kwargs["ping_interval"] == 20.0
-    assert captured_kwargs["ping_timeout"] == 60.0
+    assert captured_kwargs["ping_timeout"] is None
     assert captured_kwargs["proxy"] is None

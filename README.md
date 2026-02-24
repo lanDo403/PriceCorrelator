@@ -28,6 +28,10 @@ Per-event log fields:
 ## Log Behavior
 
 - `strategy_test_result.log` is append-only and keeps cumulative totals across restarts.
+- During `--run-both-timeframes`, `strategy_test_result.log` is updated live:
+  - `result_event` per closed event,
+  - `result_running` per timeframe,
+  - `result_total_running` and `result_total_cumulative_running` across both timeframes.
 - `strategy_test_5.log` and `strategy_test_15.log` are truncated at each new dual-timeframe run.
 - Use `--no-console-output` for file-only logging (no stdout echo).
 

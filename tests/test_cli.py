@@ -9,7 +9,7 @@ import pytest
 
 import price_correlator.cli as cli_module
 from price_correlator.cli import AlertLogger, TeeLogger, build_parser
-from price_correlator.strategy import StrategySummary
+from price_correlator.strategy import StrategyEventResult, StrategySummary
 
 
 def test_build_parser_alert_options_defaults() -> None:
@@ -147,9 +147,19 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
     class _FakeRunner:
         def __init__(self, **kwargs) -> None:
             self._logger = kwargs["logger"]
+            self._on_event_closed = kwargs.get("on_event_closed")
 
         async def run(self, config) -> StrategySummary:
             self._logger(f"summary: fake timeframe={config.market_timeframe_minutes}")
+            if self._on_event_closed is not None:
+                self._on_event_closed(
+                    StrategyEventResult(
+                        event_slug=f"btc-updown-{config.market_timeframe_minutes}m-123",
+                        end_timestamp_s=123,
+                        result="win",
+                        profit_usd=10.0,
+                    )
+                )
             if config.market_timeframe_minutes == 5:
                 return StrategySummary(total_events=2, wins=1, losses=1, skips=0, total_profit_usd=10.0)
             return StrategySummary(total_events=3, wins=2, losses=1, skips=0, total_profit_usd=20.0)
@@ -193,5 +203,9 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
     assert not any("old15" in line for line in log_15m_lines)
     assert any("result: timeframe=5m, events=2" in line for line in result_lines)
     assert any("result: timeframe=15m, events=3" in line for line in result_lines)
+    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win, profit_usd=10.00" in line for line in result_lines)
+    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win, profit_usd=10.00" in line for line in result_lines)
+    assert any("result_total_running:" in line for line in result_lines)
+    assert any("result_total_cumulative_running:" in line for line in result_lines)
     assert any("result_total: events=5, win=3, lose=2, skip=0, profit_usd=30.00" in line for line in result_lines)
     assert any("result_total_cumulative: events=15, win=9, lose=6, skip=0, profit_usd=141.00" in line for line in result_lines)

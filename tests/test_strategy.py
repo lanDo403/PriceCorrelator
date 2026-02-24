@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from price_correlator.models import EventMarketInfo, PriceSource, PriceTick
@@ -872,6 +874,35 @@ class _FakeRtdsClientReconnectAfterTimeout:
         )
 
 
+class _FakeRtdsClientSilentThenRecovers:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream_ticks(self, symbol_pair: str):
+        assert symbol_pair == "BTC/USD"
+        self.calls += 1
+        if self.calls == 1:
+            await asyncio.sleep(3600)
+            if False:
+                yield
+            return
+
+        yield PriceTick(
+            source=PriceSource.CHAINLINK,
+            symbol="btc/usd",
+            price=100_060.0,
+            source_timestamp_ms=295_000,
+            received_timestamp_ms=295_010,
+        )
+        yield PriceTick(
+            source=PriceSource.CHAINLINK,
+            symbol="btc/usd",
+            price=100_070.0,
+            source_timestamp_ms=302_000,
+            received_timestamp_ms=302_010,
+        )
+
+
 @pytest.mark.asyncio
 async def test_strategy_runner_reconnects_after_rtds_keepalive_timeout() -> None:
     logs: list[str] = []
@@ -902,6 +933,39 @@ async def test_strategy_runner_reconnects_after_rtds_keepalive_timeout() -> None
     assert summary.wins == 1
     assert fake_rtds.calls >= 2
     assert any("warning: rtds reconnect scheduled in 0.0s" in log for log in logs)
+
+
+@pytest.mark.asyncio
+async def test_strategy_runner_reconnects_when_rtds_stream_goes_silent() -> None:
+    logs: list[str] = []
+    fake_rtds = _FakeRtdsClientSilentThenRecovers()
+    runner = StrategyRunner(
+        event_client=_FakeEventClient(),
+        rtds_client=fake_rtds,
+        clob_client=_FakeClobClient(),
+        logger=logs.append,
+        now_seconds=lambda: 0,
+        reconnect_delays_seconds=(0.0,),
+        max_tick_silence_seconds=0.5,
+        sleep=_no_sleep,
+    )
+    summary = await runner.run(
+        StrategyConfig(
+            symbol_pair="BTC/USD",
+            duration_seconds=1200,
+            entry_seconds_before_end=5,
+            final_price_delay_seconds=2,
+            threshold_usd=50.0,
+            threshold_4s_usd=40.0,
+            threshold_near_end_usd=30.0,
+            stake_usd=100.0,
+        )
+    )
+
+    assert summary.total_events == 1
+    assert summary.wins == 1
+    assert fake_rtds.calls >= 2
+    assert any("reason=no ticks for 0.5s" in log for log in logs)
 
 
 class _FailingClobClient:
