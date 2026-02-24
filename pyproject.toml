@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "price-correlator"
+version = "0.1.0"
+description = "Lag and strategy monitoring between Polymarket and Chainlink prices."
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+dependencies = [
+  "websockets==15.0.1",
+  "playwright==1.58.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.4.2",
+  "pytest-asyncio==0.26.0",
+]
+
+[project.scripts]
+price-correlator = "price_correlator.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+  "ignore:.*asyncio.get_event_loop_policy.*deprecated.*:DeprecationWarning:pytest_asyncio.plugin",
+  "ignore:.*asyncio.set_event_loop_policy.*deprecated.*:DeprecationWarning:pytest_asyncio.plugin",
+]
+markers = [
+  "integration: tests with real network/process/browser dependencies",
+]
