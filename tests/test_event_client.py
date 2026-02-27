@@ -202,6 +202,21 @@ async def test_discover_latest_slug_for_15m_falls_back_to_gamma_markets() -> Non
 
 
 @pytest.mark.asyncio
+async def test_discover_latest_slug_falls_back_to_active_markets_feed() -> None:
+    client = GammaEventsClient(
+        fetcher=lambda slug: [],
+        homepage_fetcher=lambda: "<html></html>",
+        active_markets_fetcher=lambda: [
+            {"slug": "btc-updown-5m-1771159800"},
+            {"slug": "btc-updown-5m-1771160100"},
+        ],
+        recent_markets_fetcher=lambda: [],
+    )
+    slug = await client.discover_latest_btc_updown_slug(timeframe_minutes=5)
+    assert slug == "btc-updown-5m-1771160100"
+
+
+@pytest.mark.asyncio
 async def test_discover_latest_slug_raises_when_homepage_has_no_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

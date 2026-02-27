@@ -19,6 +19,9 @@ Key arguments:
 - `--log-file-path-5m`
 - `--log-file-path-15m`
 - `--result-log-file-path`
+- `--result-jsonl-file-path`
+- `--log-jsonl-file-path-5m`
+- `--log-jsonl-file-path-15m`
 - `--alerts-file-path`
 - `--disable-alerts`
 - `--no-console-output`
@@ -26,7 +29,10 @@ Key arguments:
 Log behavior in dual-timeframe mode:
 
 - `--log-file-path-5m` and `--log-file-path-15m` are truncated on startup.
+- `--log-jsonl-file-path-5m` and `--log-jsonl-file-path-15m` are truncated on startup.
+- timeframe logs now use the same key-value style as result log (`result_*`, `bankroll_*`), plus warning lines.
 - `--result-log-file-path` stays append-only.
+- `--result-jsonl-file-path` stays append-only and contains structured JSONL.
 - cumulative totals are persisted in `result_total_cumulative`.
 - dual mode logs bankroll lifecycle:
   - `bankroll_start`

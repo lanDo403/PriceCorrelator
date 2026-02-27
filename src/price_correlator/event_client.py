@@ -134,6 +134,28 @@ def _fetch_recent_markets_sync(limit: int = 500) -> list[dict[str, Any]]:
     return [record for record in _coerce_records(payload, preferred_keys=("markets", "data")) if isinstance(record, Mapping)]
 
 
+def _fetch_active_markets_sync(limit: int = 300) -> list[dict[str, Any]]:
+    query = urlencode(
+        {
+            "limit": limit,
+            "active": "true",
+            "closed": "false",
+            "order": "volume24hr",
+            "ascending": "false",
+        }
+    )
+    request = Request(
+        f"{GAMMA_MARKETS_URL}?{query}",
+        method="GET",
+        headers=_DEFAULT_HTTP_HEADERS,
+    )
+    with _urlopen_without_proxy(request, timeout=10) as response:
+        if response.status != 200:
+            raise RuntimeError(f"Gamma /markets active list returned status {response.status}.")
+        payload = json.loads(response.read().decode("utf-8"))
+    return [record for record in _coerce_records(payload, preferred_keys=("markets", "data")) if isinstance(record, Mapping)]
+
+
 def _fetch_event_page_html_playwright_sync(slug: str, timeout_ms: int = 30_000) -> str:
     try:
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -390,6 +412,7 @@ class GammaEventsClient:
         fetcher: Callable[[str], list[dict[str, Any]]] | None = None,
         market_fetcher: Callable[[str], list[dict[str, Any]]] | None = None,
         recent_markets_fetcher: Callable[[], list[dict[str, Any]]] | None = None,
+        active_markets_fetcher: Callable[[], list[dict[str, Any]]] | None = None,
         homepage_fetcher: Callable[[], str] | None = None,
         event_page_fetcher: Callable[[str], str] | None = None,
         logger: Callable[[str], None] | None = None,
@@ -397,6 +420,7 @@ class GammaEventsClient:
         self._fetcher = fetcher or _fetch_events_sync
         self._market_fetcher = market_fetcher or _fetch_markets_sync
         self._recent_markets_fetcher = recent_markets_fetcher or _fetch_recent_markets_sync
+        self._active_markets_fetcher = active_markets_fetcher or _fetch_active_markets_sync
         self._homepage_fetcher = homepage_fetcher or _fetch_homepage_html_sync
         self._event_page_fetcher = event_page_fetcher or _fetch_event_page_html_playwright_sync
         self._log = logger or (lambda _: None)
@@ -553,6 +577,17 @@ class GammaEventsClient:
     ) -> list[str]:
         html = await asyncio.to_thread(self._homepage_fetcher)
         unique = set(_extract_btc_updown_slugs(html, timeframe_minutes=timeframe_minutes))
+        if enrich_with_recent or not unique:
+            try:
+                active_market_records = await asyncio.to_thread(self._active_markets_fetcher)
+            except Exception as exc:  # noqa: BLE001
+                self._log(
+                    f"warning: active market discovery failed for {timeframe_minutes}m: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            else:
+                unique.update(_extract_btc_updown_slugs_from_markets(active_market_records, timeframe_minutes))
+
         if enrich_with_recent or not unique:
             try:
                 market_records = await asyncio.to_thread(self._recent_markets_fetcher)

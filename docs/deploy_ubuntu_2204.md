@@ -52,7 +52,10 @@ python3.10 -m venv .venv
   --initial-bankroll-usd 100 \
   --log-file-path-5m ./logs/strategy_test_5.log \
   --log-file-path-15m ./logs/strategy_test_15.log \
-  --result-log-file-path ./logs/strategy_test_result.log
+  --result-log-file-path ./logs/strategy_test_result.log \
+  --result-jsonl-file-path ./logs/strategy_test_result.jsonl \
+  --log-jsonl-file-path-5m ./logs/strategy_test_5.jsonl \
+  --log-jsonl-file-path-15m ./logs/strategy_test_15.jsonl
 ```
 
 Check logs:
@@ -61,6 +64,9 @@ Check logs:
 tail -n 50 logs/strategy_test_5.log
 tail -n 50 logs/strategy_test_15.log
 tail -n 50 logs/strategy_test_result.log
+tail -n 20 logs/strategy_test_5.jsonl
+tail -n 20 logs/strategy_test_15.jsonl
+tail -n 20 logs/strategy_test_result.jsonl
 ```
 
 ## 4. Run 24/7 via systemd
@@ -225,6 +231,12 @@ scrape_configs:
           job: price-correlator
           app: price-correlator
           __path__: /var/log/price_correlator/*.log
+      - targets:
+          - localhost
+        labels:
+          job: price-correlator
+          app: price-correlator
+          __path__: /var/log/price_correlator/*.jsonl
 ```
 
 Start stack:

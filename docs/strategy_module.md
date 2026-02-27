@@ -21,6 +21,7 @@ Entry rules:
 Finalization:
 
 - `final_price` is taken from Chainlink after configured delay (`--final-price-delay-seconds`).
+- If CLOB `/fee-rate` is available, taker fee is applied to event PnL.
 - Event result:
   - `win`
   - `lose`
@@ -30,6 +31,11 @@ Market selection:
 
 - Timeframe is controlled by `market_timeframe_minutes` (`5` or `15`).
 - Active market discovery uses Polymarket/Gamma metadata.
+- Discovery fallback chain:
+  - homepage slugs
+  - active Gamma markets list
+  - recent Gamma markets list
+  - time-aligned slug candidates around current time
 - If market switches, strategy advances to next event slug with matching timeframe.
 
 Code files:

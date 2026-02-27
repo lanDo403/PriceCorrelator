@@ -125,3 +125,47 @@ def test_clob_client_returns_none_for_non_numeric_ask_price(monkeypatch: pytest.
         thread.join(timeout=1)
 
     assert best_ask is None
+
+
+@pytest.mark.integration
+def test_clob_client_reads_taker_fee_rate_decimal(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handle_request(path: str):
+        parsed = urlparse(path)
+        if parsed.path == "/fee-rate":
+            body = json.dumps({"takerRate": "0.0156"}).encode("utf-8")
+            return 200, {"Content-Type": "application/json"}, body
+        return 404, {"Content-Type": "application/json"}, b"{}"
+
+    server, base_url, thread = _start_http_server(handle_request)
+    monkeypatch.setattr(clob_module, "CLOB_BASE_URL", base_url)
+    try:
+        client = ClobClient()
+        fee_rate = client.get_taker_fee_rate("token-1")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+    assert fee_rate == 0.0156
+
+
+@pytest.mark.integration
+def test_clob_client_reads_taker_fee_rate_bps(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handle_request(path: str):
+        parsed = urlparse(path)
+        if parsed.path == "/fee-rate":
+            body = json.dumps({"takerRateBps": 156}).encode("utf-8")
+            return 200, {"Content-Type": "application/json"}, body
+        return 404, {"Content-Type": "application/json"}, b"{}"
+
+    server, base_url, thread = _start_http_server(handle_request)
+    monkeypatch.setattr(clob_module, "CLOB_BASE_URL", base_url)
+    try:
+        client = ClobClient()
+        fee_rate = client.get_taker_fee_rate("token-1")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+    assert fee_rate == 0.0156

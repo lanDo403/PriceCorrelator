@@ -24,6 +24,9 @@ def test_build_parser_alert_options_defaults() -> None:
     assert args.log_file_path_5m == Path("logs/strategy_test_5.log")
     assert args.log_file_path_15m == Path("logs/strategy_test_15.log")
     assert args.result_log_file_path == Path("logs/strategy_test_result.log")
+    assert args.result_jsonl_file_path == Path("logs/strategy_test_result.jsonl")
+    assert args.log_jsonl_file_path_5m == Path("logs/strategy_test_5.jsonl")
+    assert args.log_jsonl_file_path_15m == Path("logs/strategy_test_15.jsonl")
     assert args.alerts_file_path == Path("logs/alerts.log")
     assert args.disable_alerts is False
 
@@ -114,6 +117,7 @@ async def test_run_from_args_returns_nonzero_and_logs_fatal_error(
         log_file_path_5m=test_dir / "unused_5m.log",
         log_file_path_15m=test_dir / "unused_15m.log",
         result_log_file_path=test_dir / "unused_result.log",
+        result_jsonl_file_path=test_dir / "unused_result.jsonl",
         alerts_file_path=alerts_log_path,
         disable_alerts=False,
         no_console_output=True,
@@ -140,6 +144,9 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
     log_5m = test_dir / "strategy_test_5.log"
     log_15m = test_dir / "strategy_test_15.log"
     result_log = test_dir / "strategy_test_result.log"
+    result_jsonl = test_dir / "strategy_test_result.jsonl"
+    log_jsonl_5m = test_dir / "strategy_test_5.jsonl"
+    log_jsonl_15m = test_dir / "strategy_test_15.jsonl"
     alerts_log = test_dir / "alerts.log"
     log_5m.write_text("old5\n", encoding="utf-8")
     log_15m.write_text("old15\n", encoding="utf-8")
@@ -170,6 +177,7 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
                         result="win",
                         profit_usd=10.0,
                         stake_usd=50.0,
+                        fee_usd=0.0,
                     )
                 )
             if config.market_timeframe_minutes == 5:
@@ -196,6 +204,9 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
         log_file_path_5m=log_5m,
         log_file_path_15m=log_15m,
         result_log_file_path=result_log,
+        result_jsonl_file_path=result_jsonl,
+        log_jsonl_file_path_5m=log_jsonl_5m,
+        log_jsonl_file_path_15m=log_jsonl_15m,
         alerts_file_path=alerts_log,
         disable_alerts=True,
         no_console_output=True,
@@ -204,21 +215,29 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
     try:
         exit_code = await cli_module.run_from_args(args)
         result_lines = result_log.read_text(encoding="utf-8").splitlines()
+        result_jsonl_lines = result_jsonl.read_text(encoding="utf-8").splitlines()
+        jsonl_5m_lines = log_jsonl_5m.read_text(encoding="utf-8").splitlines()
+        jsonl_15m_lines = log_jsonl_15m.read_text(encoding="utf-8").splitlines()
         log_5m_lines = log_5m.read_text(encoding="utf-8").splitlines()
         log_15m_lines = log_15m.read_text(encoding="utf-8").splitlines()
     finally:
         shutil.rmtree(test_dir, ignore_errors=True)
 
     assert exit_code == 0
-    assert any("summary: fake timeframe=5" in line for line in log_5m_lines)
-    assert any("summary: fake timeframe=15" in line for line in log_15m_lines)
+    assert any("mode: timeframe=5m" in line for line in log_5m_lines)
+    assert any("mode: timeframe=15m" in line for line in log_15m_lines)
     assert not any("old5" in line for line in log_5m_lines)
     assert not any("old15" in line for line in log_15m_lines)
+    assert any("bankroll_start: bankroll_usd=100.00, tradable_even_usd=100, stake_per_market_usd=50.00" in line for line in log_5m_lines)
+    assert any("bankroll_start: bankroll_usd=100.00, tradable_even_usd=100, stake_per_market_usd=50.00" in line for line in log_15m_lines)
+    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win, stake_usd=50.00, fee_usd=0.0000, profit_usd=10.00" in line for line in log_5m_lines)
+    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win, stake_usd=50.00, fee_usd=0.0000, profit_usd=10.00" in line for line in log_15m_lines)
+    assert any("result_jsonl_file:" in line for line in result_lines)
     assert any("result: timeframe=5m, events=2" in line for line in result_lines)
     assert any("result: timeframe=15m, events=3" in line for line in result_lines)
     assert any("bankroll_start: bankroll_usd=100.00, tradable_even_usd=100, stake_per_market_usd=50.00" in line for line in result_lines)
-    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win, stake_usd=50.00, profit_usd=10.00" in line for line in result_lines)
-    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win, stake_usd=50.00, profit_usd=10.00" in line for line in result_lines)
+    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win, stake_usd=50.00, fee_usd=0.0000, profit_usd=10.00" in line for line in result_lines)
+    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win, stake_usd=50.00, fee_usd=0.0000, profit_usd=10.00" in line for line in result_lines)
     assert any("bankroll_update: timeframe=5m, slug=btc-updown-5m-123, bankroll_usd=110.00, tradable_even_usd=110, stake_per_market_usd=55.00" in line for line in result_lines)
     assert any("bankroll_update: timeframe=15m, slug=btc-updown-15m-123, bankroll_usd=120.00, tradable_even_usd=120, stake_per_market_usd=60.00" in line for line in result_lines)
     assert any("result_total_running:" in line for line in result_lines)
@@ -226,3 +245,10 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
     assert any("result_total: events=5, win=3, lose=2, skip=0, profit_usd=30.00" in line for line in result_lines)
     assert any("result_total_cumulative: events=15, win=9, lose=6, skip=0, profit_usd=141.00" in line for line in result_lines)
     assert any("bankroll_final: bankroll_usd=120.00, tradable_even_usd=120, stake_per_market_usd=60.00" in line for line in result_lines)
+    assert any('"type": "result_event"' in line for line in result_jsonl_lines)
+    assert any('"type": "bankroll_start"' in line for line in result_jsonl_lines)
+    assert any('"type": "result_total_cumulative"' in line for line in result_jsonl_lines)
+    assert any('"type": "result_event"' in line for line in jsonl_5m_lines)
+    assert any('"type": "result_event"' in line for line in jsonl_15m_lines)
+    assert any('"timeframe": 5' in line for line in jsonl_5m_lines)
+    assert any('"timeframe": 15' in line for line in jsonl_15m_lines)

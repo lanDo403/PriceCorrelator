@@ -31,6 +31,7 @@ class StrategyConfig:
     threshold_4s_usd: float = 40.0
     threshold_near_end_usd: float = 30.0
     stake_usd: float = 100.0
+    apply_taker_fees: bool = True
 
     def __post_init__(self) -> None:
         build_subscribe_message(self.symbol_pair)
@@ -76,6 +77,7 @@ class StrategyEventResult:
     result: str
     profit_usd: float
     stake_usd: float
+    fee_usd: float
 
 
 @dataclass
@@ -86,11 +88,13 @@ class _EventState:
     entry_side: str | None = None
     entry_yes_price: float | None = None
     entry_stake_usd: float | None = None
+    entry_taker_fee_rate: float = 0.0
     final_price: float | None = None
     entered: bool = False
     result: str = "pending"
     reason: str = ""
     profit_usd: float = 0.0
+    fee_usd: float = 0.0
     next_price_refresh_at_monotonic: float = 0.0
 
 
@@ -220,6 +224,7 @@ class StrategyRunner:
                             result=state.result,
                             profit_usd=state.profit_usd,
                             stake_usd=state.entry_stake_usd or 0.0,
+                            fee_usd=state.fee_usd,
                         )
                     )
 
@@ -489,11 +494,43 @@ class StrategyRunner:
             state.reason = "insufficient_stake"
             return
 
+        taker_fee_rate = 0.0
+        if config.apply_taker_fees:
+            fee_fetcher = getattr(self._clob_client, "get_taker_fee_rate", None)
+            if callable(fee_fetcher):
+                try:
+                    fee_rate_value = fee_fetcher(token_id)
+                except Exception as exc:  # noqa: BLE001
+                    self._log(
+                        f"warning: clob fee fetch failed: token_id={token_id}, "
+                        f"error={type(exc).__name__}: {exc}"
+                    )
+                else:
+                    if fee_rate_value is None:
+                        taker_fee_rate = 0.0
+                    else:
+                        try:
+                            parsed_fee_rate = float(fee_rate_value)
+                        except (TypeError, ValueError):
+                            self._log(
+                                f"warning: invalid taker fee rate: token_id={token_id}, "
+                                f"value={fee_rate_value}"
+                            )
+                        else:
+                            if parsed_fee_rate < 0:
+                                self._log(
+                                    f"warning: negative taker fee rate ignored: token_id={token_id}, "
+                                    f"value={parsed_fee_rate}"
+                                )
+                            else:
+                                taker_fee_rate = parsed_fee_rate
+
         state.entered = True
         state.entry_side = side
         state.entry_price = tick.price
         state.entry_yes_price = best_ask
         state.entry_stake_usd = stake_usd
+        state.entry_taker_fee_rate = taker_fee_rate
         state.reason = "filled"
 
     @staticmethod
@@ -503,6 +540,7 @@ class StrategyRunner:
             state.result = "skip"
             state.reason = "missing_price_to_beat"
             state.profit_usd = 0.0
+            state.fee_usd = 0.0
             return
 
         if not state.entered:
@@ -511,6 +549,7 @@ class StrategyRunner:
                 if not state.reason:
                     state.reason = "entry_not_opened"
             state.profit_usd = 0.0
+            state.fee_usd = 0.0
             return
 
         assert state.entry_yes_price is not None
@@ -519,7 +558,8 @@ class StrategyRunner:
         is_up_win = state.final_price >= state.price_to_beat
         is_win = is_up_win if state.entry_side == "up" else not is_up_win
         payout = shares if is_win else 0.0
-        state.profit_usd = payout - stake_usd
+        state.fee_usd = stake_usd * max(state.entry_taker_fee_rate, 0.0)
+        state.profit_usd = payout - stake_usd - state.fee_usd
         state.result = "win" if is_win else "lose"
         if not state.reason:
             state.reason = "filled"

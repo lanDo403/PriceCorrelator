@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +71,31 @@ class AlertLogger:
     @property
     def path(self) -> Path:
         return self._path
+
+
+class JsonlLogger:
+    """Write structured JSON entries to a JSONL file."""
+
+    def __init__(self, path: Path, append: bool = True) -> None:
+        self._path = path
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        mode = "a" if append else "w"
+        self._file = self._path.open(mode, encoding="utf-8")
+
+    def write(self, payload: dict[str, object]) -> None:
+        self._file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        self._file.flush()
+
+    def close(self) -> None:
+        self._file.close()
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -166,6 +192,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("logs/strategy_test_result.log"),
         help="Combined result log path when --run-both-timeframes is enabled.",
+    )
+    parser.add_argument(
+        "--result-jsonl-file-path",
+        type=Path,
+        default=Path("logs/strategy_test_result.jsonl"),
+        help="Structured JSONL result log path when --run-both-timeframes is enabled.",
+    )
+    parser.add_argument(
+        "--log-jsonl-file-path-5m",
+        type=Path,
+        default=Path("logs/strategy_test_5.jsonl"),
+        help="Structured JSONL log path for 5-minute strategy in dual-timeframe mode.",
+    )
+    parser.add_argument(
+        "--log-jsonl-file-path-15m",
+        type=Path,
+        default=Path("logs/strategy_test_15.jsonl"),
+        help="Structured JSONL log path for 15-minute strategy in dual-timeframe mode.",
     )
     parser.add_argument(
         "--alerts-file-path",
@@ -307,6 +351,42 @@ def _compute_per_market_stake(bankroll_usd: float) -> float:
     return float(_compute_even_tradable_bankroll(bankroll_usd) // 2)
 
 
+def _build_timeframe_strategy_logger(
+    logger: Callable[[str], None],
+    jsonl_logger: JsonlLogger,
+    timeframe_minutes: int,
+) -> Callable[[str], None]:
+    """Filter verbose strategy internals; keep warnings in per-timeframe logs."""
+
+    def _log(message: str) -> None:
+        if message.startswith("warning:") or message.startswith("Warning:"):
+            logger(message)
+            jsonl_logger.write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "warning",
+                    "timeframe": timeframe_minutes,
+                    "message": message,
+                }
+            )
+            return
+        if message.startswith("| ") or message.startswith("summary:"):
+            return
+        if message.startswith("switch_event:") or message.startswith("price_to_beat_refresh:"):
+            return
+        logger(message)
+        jsonl_logger.write(
+            {
+                "ts_utc": _utc_now_iso(),
+                "type": "log",
+                "timeframe": timeframe_minutes,
+                "message": message,
+            }
+        )
+
+    return _log
+
+
 async def _run_both_timeframes(args: argparse.Namespace) -> int:
     alerts_enabled = not args.disable_alerts
     echo_to_console = not args.no_console_output
@@ -331,6 +411,9 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
         append=True,
         echo_to_console=echo_to_console,
     )
+    jsonl_logger_5m = JsonlLogger(args.log_jsonl_file_path_5m, append=False)
+    jsonl_logger_15m = JsonlLogger(args.log_jsonl_file_path_15m, append=False)
+    jsonl_logger = JsonlLogger(args.result_jsonl_file_path, append=True)
     previous_cumulative = _load_previous_cumulative_summary(args.result_log_file_path)
     bankroll_usd = float(args.initial_bankroll_usd)
     running_5m = _empty_summary()
@@ -338,11 +421,84 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
     result_logger("mode: run_both_timeframes")
     if alerts_enabled:
         result_logger(f"alerts_file: {args.alerts_file_path}")
+    result_logger(f"result_jsonl_file: {jsonl_logger.path}")
+    logger_5m("mode: timeframe=5m")
+    logger_15m("mode: timeframe=15m")
+    jsonl_logger_5m.write(
+        {
+            "ts_utc": _utc_now_iso(),
+            "type": "run_start",
+            "timeframe": 5,
+            "log_file": str(args.log_file_path_5m),
+            "jsonl_file": str(args.log_jsonl_file_path_5m),
+        }
+    )
+    jsonl_logger_15m.write(
+        {
+            "ts_utc": _utc_now_iso(),
+            "type": "run_start",
+            "timeframe": 15,
+            "log_file": str(args.log_file_path_15m),
+            "jsonl_file": str(args.log_jsonl_file_path_15m),
+        }
+    )
+    jsonl_logger.write(
+        {
+            "ts_utc": _utc_now_iso(),
+            "type": "run_start",
+            "mode": "run_both_timeframes",
+            "alerts_enabled": alerts_enabled,
+            "alerts_file": str(args.alerts_file_path),
+            "result_log_file": str(args.result_log_file_path),
+            "result_jsonl_file": str(jsonl_logger.path),
+        }
+    )
     result_logger(
         "bankroll_start: "
         f"bankroll_usd={bankroll_usd:.2f}, "
         f"tradable_even_usd={_compute_even_tradable_bankroll(bankroll_usd)}, "
         f"stake_per_market_usd={_compute_per_market_stake(bankroll_usd):.2f}"
+    )
+    logger_5m(
+        "bankroll_start: "
+        f"bankroll_usd={bankroll_usd:.2f}, "
+        f"tradable_even_usd={_compute_even_tradable_bankroll(bankroll_usd)}, "
+        f"stake_per_market_usd={_compute_per_market_stake(bankroll_usd):.2f}"
+    )
+    logger_15m(
+        "bankroll_start: "
+        f"bankroll_usd={bankroll_usd:.2f}, "
+        f"tradable_even_usd={_compute_even_tradable_bankroll(bankroll_usd)}, "
+        f"stake_per_market_usd={_compute_per_market_stake(bankroll_usd):.2f}"
+    )
+    jsonl_logger_5m.write(
+        {
+            "ts_utc": _utc_now_iso(),
+            "type": "bankroll_start",
+            "timeframe": 5,
+            "bankroll_usd": bankroll_usd,
+            "tradable_even_usd": _compute_even_tradable_bankroll(bankroll_usd),
+            "stake_per_market_usd": _compute_per_market_stake(bankroll_usd),
+        }
+    )
+    jsonl_logger_15m.write(
+        {
+            "ts_utc": _utc_now_iso(),
+            "type": "bankroll_start",
+            "timeframe": 15,
+            "bankroll_usd": bankroll_usd,
+            "tradable_even_usd": _compute_even_tradable_bankroll(bankroll_usd),
+            "stake_per_market_usd": _compute_per_market_stake(bankroll_usd),
+        }
+    )
+    jsonl_logger.write(
+        {
+            "ts_utc": _utc_now_iso(),
+            "type": "bankroll_start",
+            "bankroll_usd": bankroll_usd,
+            "tradable_even_usd": _compute_even_tradable_bankroll(bankroll_usd),
+            "stake_per_market_usd": _compute_per_market_stake(bankroll_usd),
+        }
     )
 
     def _shared_stake_provider(_market: EventMarketInfo) -> float:
@@ -367,10 +523,28 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
             f"skip={cumulative_running.skips}, "
             f"profit_usd={cumulative_running.total_profit_usd:.2f}"
         )
+        jsonl_logger.write(
+            {
+                "ts_utc": _utc_now_iso(),
+                "type": "result_total_running",
+                "events": running_total.total_events,
+                "win": running_total.wins,
+                "lose": running_total.losses,
+                "skip": running_total.skips,
+                "profit_usd": running_total.total_profit_usd,
+                "events_cumulative": cumulative_running.total_events,
+                "win_cumulative": cumulative_running.wins,
+                "lose_cumulative": cumulative_running.losses,
+                "skip_cumulative": cumulative_running.skips,
+                "profit_usd_cumulative": cumulative_running.total_profit_usd,
+            }
+        )
 
     def _build_event_handler(timeframe_minutes: int) -> Callable[[StrategyEventResult], None]:
         def _handle_event(event: StrategyEventResult) -> None:
             nonlocal bankroll_usd, running_5m, running_15m
+            timeframe_logger = logger_5m if timeframe_minutes == 5 else logger_15m
+            timeframe_jsonl_logger = jsonl_logger_5m if timeframe_minutes == 5 else jsonl_logger_15m
             delta = _summary_from_event_result(event)
             if timeframe_minutes == 5:
                 running_5m = _merge_summaries(running_5m, delta)
@@ -379,15 +553,44 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                 running_15m = _merge_summaries(running_15m, delta)
                 timeframe_running = running_15m
             bankroll_usd += event.profit_usd
-            result_logger(
+            result_event_line = (
                 "result_event: "
                 f"timeframe={timeframe_minutes}m, "
                 f"slug={event.event_slug}, "
                 f"result={event.result}, "
                 f"stake_usd={event.stake_usd:.2f}, "
+                f"fee_usd={event.fee_usd:.4f}, "
                 f"profit_usd={event.profit_usd:.2f}"
             )
-            result_logger(
+            result_logger(result_event_line)
+            timeframe_logger(result_event_line)
+            timeframe_jsonl_logger.write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "result_event",
+                    "timeframe": timeframe_minutes,
+                    "event_slug": event.event_slug,
+                    "event_end_timestamp_s": event.end_timestamp_s,
+                    "result": event.result,
+                    "stake_usd": event.stake_usd,
+                    "fee_usd": event.fee_usd,
+                    "profit_usd": event.profit_usd,
+                }
+            )
+            jsonl_logger.write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "result_event",
+                    "timeframe": timeframe_minutes,
+                    "event_slug": event.event_slug,
+                    "event_end_timestamp_s": event.end_timestamp_s,
+                    "result": event.result,
+                    "stake_usd": event.stake_usd,
+                    "fee_usd": event.fee_usd,
+                    "profit_usd": event.profit_usd,
+                }
+            )
+            bankroll_update_line = (
                 "bankroll_update: "
                 f"timeframe={timeframe_minutes}m, "
                 f"slug={event.event_slug}, "
@@ -395,7 +598,31 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                 f"tradable_even_usd={_compute_even_tradable_bankroll(bankroll_usd)}, "
                 f"stake_per_market_usd={_compute_per_market_stake(bankroll_usd):.2f}"
             )
-            result_logger(
+            result_logger(bankroll_update_line)
+            timeframe_logger(bankroll_update_line)
+            timeframe_jsonl_logger.write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "bankroll_update",
+                    "timeframe": timeframe_minutes,
+                    "event_slug": event.event_slug,
+                    "bankroll_usd": bankroll_usd,
+                    "tradable_even_usd": _compute_even_tradable_bankroll(bankroll_usd),
+                    "stake_per_market_usd": _compute_per_market_stake(bankroll_usd),
+                }
+            )
+            jsonl_logger.write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "bankroll_update",
+                    "timeframe": timeframe_minutes,
+                    "event_slug": event.event_slug,
+                    "bankroll_usd": bankroll_usd,
+                    "tradable_even_usd": _compute_even_tradable_bankroll(bankroll_usd),
+                    "stake_per_market_usd": _compute_per_market_stake(bankroll_usd),
+                }
+            )
+            result_running_line = (
                 "result_running: "
                 f"timeframe={timeframe_minutes}m, "
                 f"events={timeframe_running.total_events}, "
@@ -404,17 +631,45 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                 f"skip={timeframe_running.skips}, "
                 f"profit_usd={timeframe_running.total_profit_usd:.2f}"
             )
+            result_logger(result_running_line)
+            timeframe_logger(result_running_line)
+            timeframe_jsonl_logger.write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "result_running",
+                    "timeframe": timeframe_minutes,
+                    "events": timeframe_running.total_events,
+                    "win": timeframe_running.wins,
+                    "lose": timeframe_running.losses,
+                    "skip": timeframe_running.skips,
+                    "profit_usd": timeframe_running.total_profit_usd,
+                }
+            )
+            jsonl_logger.write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "result_running",
+                    "timeframe": timeframe_minutes,
+                    "events": timeframe_running.total_events,
+                    "win": timeframe_running.wins,
+                    "lose": timeframe_running.losses,
+                    "skip": timeframe_running.skips,
+                    "profit_usd": timeframe_running.total_profit_usd,
+                }
+            )
             _log_running_totals()
 
         return _handle_event
 
     exit_code = 0
     try:
+        strategy_logger_5m = _build_timeframe_strategy_logger(logger_5m, jsonl_logger_5m, timeframe_minutes=5)
+        strategy_logger_15m = _build_timeframe_strategy_logger(logger_15m, jsonl_logger_15m, timeframe_minutes=15)
         run_5m = asyncio.create_task(
             _run_strategy_for_timeframe(
                 args=args,
                 timeframe_minutes=5,
-                logger=logger_5m,
+                logger=strategy_logger_5m,
                 stake_provider=_shared_stake_provider,
                 on_event_closed=_build_event_handler(5),
             )
@@ -423,7 +678,7 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
             _run_strategy_for_timeframe(
                 args=args,
                 timeframe_minutes=15,
-                logger=logger_15m,
+                logger=strategy_logger_15m,
                 stake_provider=_shared_stake_provider,
                 on_event_closed=_build_event_handler(15),
             )
@@ -438,12 +693,30 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
         for timeframe, outcome in ((5, results[0]), (15, results[1])):
             if isinstance(outcome, Exception):
                 exit_code = 1
-                result_logger(
-                    f"warning: timeframe={timeframe}m failed: {type(outcome).__name__}: {outcome}"
+                warning_line = f"warning: timeframe={timeframe}m failed: {type(outcome).__name__}: {outcome}"
+                result_logger(warning_line)
+                (logger_5m if timeframe == 5 else logger_15m)(warning_line)
+                (jsonl_logger_5m if timeframe == 5 else jsonl_logger_15m).write(
+                    {
+                        "ts_utc": _utc_now_iso(),
+                        "type": "timeframe_failed",
+                        "timeframe": timeframe,
+                        "error_type": type(outcome).__name__,
+                        "error": str(outcome),
+                    }
+                )
+                jsonl_logger.write(
+                    {
+                        "ts_utc": _utc_now_iso(),
+                        "type": "timeframe_failed",
+                        "timeframe": timeframe,
+                        "error_type": type(outcome).__name__,
+                        "error": str(outcome),
+                    }
                 )
                 continue
 
-            result_logger(
+            result_line = (
                 "result: "
                 f"timeframe={timeframe}m, "
                 f"events={outcome.total_events}, "
@@ -451,6 +724,32 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                 f"lose={outcome.losses}, "
                 f"skip={outcome.skips}, "
                 f"profit_usd={outcome.total_profit_usd:.2f}"
+            )
+            result_logger(result_line)
+            (logger_5m if timeframe == 5 else logger_15m)(result_line)
+            (jsonl_logger_5m if timeframe == 5 else jsonl_logger_15m).write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "result",
+                    "timeframe": timeframe,
+                    "events": outcome.total_events,
+                    "win": outcome.wins,
+                    "lose": outcome.losses,
+                    "skip": outcome.skips,
+                    "profit_usd": outcome.total_profit_usd,
+                }
+            )
+            jsonl_logger.write(
+                {
+                    "ts_utc": _utc_now_iso(),
+                    "type": "result",
+                    "timeframe": timeframe,
+                    "events": outcome.total_events,
+                    "win": outcome.wins,
+                    "lose": outcome.losses,
+                    "skip": outcome.skips,
+                    "profit_usd": outcome.total_profit_usd,
+                }
             )
             total_events += outcome.total_events
             total_wins += outcome.wins
@@ -473,6 +772,17 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
             f"skip={run_total_summary.skips}, "
             f"profit_usd={run_total_summary.total_profit_usd:.2f}"
         )
+        jsonl_logger.write(
+            {
+                "ts_utc": _utc_now_iso(),
+                "type": "result_total",
+                "events": run_total_summary.total_events,
+                "win": run_total_summary.wins,
+                "lose": run_total_summary.losses,
+                "skip": run_total_summary.skips,
+                "profit_usd": run_total_summary.total_profit_usd,
+            }
+        )
         cumulative = _merge_summaries(previous_cumulative, run_total_summary)
         result_logger(
             "result_total_cumulative: "
@@ -482,13 +792,37 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
             f"skip={cumulative.skips}, "
             f"profit_usd={cumulative.total_profit_usd:.2f}"
         )
+        jsonl_logger.write(
+            {
+                "ts_utc": _utc_now_iso(),
+                "type": "result_total_cumulative",
+                "events": cumulative.total_events,
+                "win": cumulative.wins,
+                "lose": cumulative.losses,
+                "skip": cumulative.skips,
+                "profit_usd": cumulative.total_profit_usd,
+            }
+        )
         result_logger(
             "bankroll_final: "
             f"bankroll_usd={bankroll_usd:.2f}, "
             f"tradable_even_usd={_compute_even_tradable_bankroll(bankroll_usd)}, "
             f"stake_per_market_usd={_compute_per_market_stake(bankroll_usd):.2f}"
         )
+        jsonl_logger.write(
+            {
+                "ts_utc": _utc_now_iso(),
+                "type": "bankroll_final",
+                "bankroll_usd": bankroll_usd,
+                "tradable_even_usd": _compute_even_tradable_bankroll(bankroll_usd),
+                "stake_per_market_usd": _compute_per_market_stake(bankroll_usd),
+                "exit_code": exit_code,
+            }
+        )
     finally:
+        jsonl_logger_5m.close()
+        jsonl_logger_15m.close()
+        jsonl_logger.close()
         if alert_5m is not None:
             alert_5m.close()
         if alert_15m is not None:

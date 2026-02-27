@@ -28,10 +28,13 @@ Per-event log fields:
 ## Log Behavior
 
 - `strategy_test_result.log` is append-only and keeps cumulative totals across restarts.
+- `strategy_test_result.jsonl` stores the same lifecycle in structured JSON lines for Grafana/Loki parsing.
+- `strategy_test_5.jsonl` and `strategy_test_15.jsonl` store structured JSON lines per timeframe and are reset on each new dual-timeframe start.
 - During `--run-both-timeframes`, `strategy_test_result.log` is updated live:
   - `result_event` per closed event,
   - `result_running` per timeframe,
   - `result_total_running` and `result_total_cumulative_running` across both timeframes.
+- `strategy_test_5.log` and `strategy_test_15.log` use the same key-value event format (`result_*`, `bankroll_*`) for their own timeframe.
 - In dual mode stake is dynamic from shared bankroll:
   - start from `--initial-bankroll-usd`,
   - use only even integer part of bankroll,
@@ -39,6 +42,12 @@ Per-event log fields:
   - bankroll updates after each closed event by `profit_usd`.
 - `strategy_test_5.log` and `strategy_test_15.log` are truncated at each new dual-timeframe run.
 - Use `--no-console-output` for file-only logging (no stdout echo).
+- Active market discovery uses layered fallback:
+  - homepage links,
+  - active Gamma markets feed,
+  - recent Gamma markets feed,
+  - time-aligned slug candidates around current time.
+- Taker fee from CLOB `/fee-rate` is included in event PnL when available.
 
 ## Setup
 
@@ -68,6 +77,9 @@ python -m venv .venv
   --log-file-path-5m .\logs\strategy_test_5.log `
   --log-file-path-15m .\logs\strategy_test_15.log `
   --result-log-file-path .\logs\strategy_test_result.log `
+  --result-jsonl-file-path .\logs\strategy_test_result.jsonl `
+  --log-jsonl-file-path-5m .\logs\strategy_test_5.jsonl `
+  --log-jsonl-file-path-15m .\logs\strategy_test_15.jsonl `
   --alerts-file-path .\logs\alerts.log
 ```
 

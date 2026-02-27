@@ -17,4 +17,7 @@ exec "$PYTHON_BIN" -m price_correlator.cli \
   --stake-usd 100 \
   --log-file-path-5m "./logs/strategy_test_5.log" \
   --log-file-path-15m "./logs/strategy_test_15.log" \
-  --result-log-file-path "./logs/strategy_test_result.log"
+  --result-log-file-path "./logs/strategy_test_result.log" \
+  --result-jsonl-file-path "./logs/strategy_test_result.jsonl" \
+  --log-jsonl-file-path-5m "./logs/strategy_test_5.jsonl" \
+  --log-jsonl-file-path-15m "./logs/strategy_test_15.jsonl"

@@ -29,6 +29,17 @@ class _FakeClobClient:
         return 0.5
 
 
+class _FakeClobClientWithFee(_FakeClobClient):
+    def get_taker_fee_rate(self, token_id: str) -> float | None:
+        assert token_id in {"up-token", "down-token"}
+        return 0.015
+
+
+class _FakeClobClientFailingFee(_FakeClobClient):
+    def get_taker_fee_rate(self, token_id: str) -> float | None:
+        raise RuntimeError(f"fee endpoint unavailable for {token_id}")
+
+
 class _FakeRtdsClient:
     async def stream_ticks(self, symbol_pair: str):
         assert symbol_pair == "BTC/USD"
@@ -144,6 +155,64 @@ async def test_strategy_runner_skips_when_dynamic_stake_is_zero() -> None:
     assert summary.total_events == 1
     assert summary.skips == 1
     assert any("| skip | 0.00 | insufficient_stake |" in log for log in logs)
+
+
+@pytest.mark.asyncio
+async def test_strategy_runner_applies_taker_fee_to_profit() -> None:
+    runner = StrategyRunner(
+        event_client=_FakeEventClient(),
+        rtds_client=_FakeRtdsClient(),
+        clob_client=_FakeClobClientWithFee(),
+        logger=lambda _line: None,
+        now_seconds=lambda: 0,
+    )
+    summary = await runner.run(
+        StrategyConfig(
+            symbol_pair="BTC/USD",
+            duration_seconds=1200,
+            entry_seconds_before_end=5,
+            final_price_delay_seconds=2,
+            threshold_usd=50.0,
+            threshold_4s_usd=40.0,
+            threshold_near_end_usd=30.0,
+            stake_usd=100.0,
+            apply_taker_fees=True,
+        )
+    )
+
+    assert summary.total_events == 1
+    assert summary.wins == 1
+    assert summary.total_profit_usd == pytest.approx(98.5)
+
+
+@pytest.mark.asyncio
+async def test_strategy_runner_continues_when_fee_fetch_fails() -> None:
+    logs: list[str] = []
+    runner = StrategyRunner(
+        event_client=_FakeEventClient(),
+        rtds_client=_FakeRtdsClient(),
+        clob_client=_FakeClobClientFailingFee(),
+        logger=logs.append,
+        now_seconds=lambda: 0,
+    )
+    summary = await runner.run(
+        StrategyConfig(
+            symbol_pair="BTC/USD",
+            duration_seconds=1200,
+            entry_seconds_before_end=5,
+            final_price_delay_seconds=2,
+            threshold_usd=50.0,
+            threshold_4s_usd=40.0,
+            threshold_near_end_usd=30.0,
+            stake_usd=100.0,
+            apply_taker_fees=True,
+        )
+    )
+
+    assert summary.total_events == 1
+    assert summary.wins == 1
+    assert summary.total_profit_usd == 100.0
+    assert any("warning: clob fee fetch failed" in line for line in logs)
 
 
 class _FakeRtdsClientDown:

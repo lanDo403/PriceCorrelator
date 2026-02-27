@@ -7,7 +7,11 @@
 - Warning-level events are automatically duplicated to alert log.
 - In dual-timeframe mode:
   - `logs/strategy_test_5.log` and `logs/strategy_test_15.log` are reset each start.
+  - `logs/strategy_test_5.jsonl` and `logs/strategy_test_15.jsonl` are reset each start.
+  - `logs/strategy_test_5.log` and `logs/strategy_test_15.log` emit structured key-value lines (`result_*`, `bankroll_*`) for their own timeframe.
+  - `logs/strategy_test_5.jsonl` and `logs/strategy_test_15.jsonl` emit structured JSON lines (`result_*`, `bankroll_*`, `warning`).
   - `logs/strategy_test_result.log` is append-only and stores cumulative totals.
+  - `logs/strategy_test_result.jsonl` stores structured event/bankroll/result entries.
   - bankroll lines are written to `logs/strategy_test_result.log`:
     - `bankroll_start`
     - `bankroll_update`
@@ -23,6 +27,7 @@ An alert entry is created for every message that starts with:
 This includes:
 
 - RTDS reconnect scheduling warnings.
+- RTDS HTTP 429 throttling warnings (strategy retries with reconnect backoff).
 - Event switching failures.
 - Price refresh and CLOB access failures.
 - Fatal strategy exceptions (process exits with code `1`).

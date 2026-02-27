@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/root/apps/PriceCorrelator
-ExecStart=/root/apps/PriceCorrelator/.venv/bin/python -m price_correlator.cli --run-both-timeframes --no-console-output --duration-seconds 315360000 --entry-seconds-before-end 5 --final-price-delay-seconds 2 --price-threshold-30s-usd 150 --price-threshold-usd 50 --price-threshold-4s-usd 40 --price-threshold-near-end-usd 30 --initial-bankroll-usd 100 --stake-usd 100 --log-file-path-5m /root/apps/PriceCorrelator/logs/strategy_test_5.log --log-file-path-15m /root/apps/PriceCorrelator/logs/strategy_test_15.log --result-log-file-path /root/apps/PriceCorrelator/logs/strategy_test_result.log
+ExecStart=/root/apps/PriceCorrelator/.venv/bin/python -m price_correlator.cli --run-both-timeframes --no-console-output --duration-seconds 315360000 --entry-seconds-before-end 5 --final-price-delay-seconds 2 --price-threshold-30s-usd 150 --price-threshold-usd 50 --price-threshold-4s-usd 40 --price-threshold-near-end-usd 30 --initial-bankroll-usd 100 --stake-usd 100 --log-file-path-5m /root/apps/PriceCorrelator/logs/strategy_test_5.log --log-file-path-15m /root/apps/PriceCorrelator/logs/strategy_test_15.log --result-log-file-path /root/apps/PriceCorrelator/logs/strategy_test_result.log --result-jsonl-file-path /root/apps/PriceCorrelator/logs/strategy_test_result.jsonl --log-jsonl-file-path-5m /root/apps/PriceCorrelator/logs/strategy_test_5.jsonl --log-jsonl-file-path-15m /root/apps/PriceCorrelator/logs/strategy_test_15.jsonl
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
