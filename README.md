@@ -32,6 +32,11 @@ Per-event log fields:
   - `result_event` per closed event,
   - `result_running` per timeframe,
   - `result_total_running` and `result_total_cumulative_running` across both timeframes.
+- In dual mode stake is dynamic from shared bankroll:
+  - start from `--initial-bankroll-usd`,
+  - use only even integer part of bankroll,
+  - per-market stake is `even_bankroll // 2`,
+  - bankroll updates after each closed event by `profit_usd`.
 - `strategy_test_5.log` and `strategy_test_15.log` are truncated at each new dual-timeframe run.
 - Use `--no-console-output` for file-only logging (no stdout echo).
 
@@ -58,6 +63,7 @@ python -m venv .venv
   --price-threshold-usd 50 `
   --price-threshold-4s-usd 40 `
   --price-threshold-near-end-usd 30 `
+  --initial-bankroll-usd 100 `
   --stake-usd 100 `
   --log-file-path-5m .\logs\strategy_test_5.log `
   --log-file-path-15m .\logs\strategy_test_15.log `

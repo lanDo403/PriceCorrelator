@@ -13,6 +13,7 @@ exec "$PYTHON_BIN" -m price_correlator.cli \
   --price-threshold-usd 50 \
   --price-threshold-4s-usd 40 \
   --price-threshold-near-end-usd 30 \
+  --initial-bankroll-usd 100 \
   --stake-usd 100 \
   --log-file-path-5m "./logs/strategy_test_5.log" \
   --log-file-path-15m "./logs/strategy_test_15.log" \

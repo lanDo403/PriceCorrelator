@@ -9,6 +9,7 @@ from typing import Callable
 
 from price_correlator.clob_client import ClobClient
 from price_correlator.event_client import GammaEventsClient
+from price_correlator.models import EventMarketInfo
 from price_correlator.rtds_client import RtdsClient
 from price_correlator.strategy import StrategyConfig, StrategyEventResult, StrategyRunner, StrategySummary
 
@@ -135,6 +136,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=100.0,
         help="Entry stake in USD (idealized no-fee model).",
+    )
+    parser.add_argument(
+        "--initial-bankroll-usd",
+        type=float,
+        default=100.0,
+        help="Initial shared bankroll for --run-both-timeframes mode.",
     )
     parser.add_argument(
         "--log-file-path",
@@ -273,6 +280,7 @@ async def _run_strategy_for_timeframe(
     args: argparse.Namespace,
     timeframe_minutes: int,
     logger: Callable[[str], None],
+    stake_provider: Callable[[EventMarketInfo], float] | None = None,
     on_event_closed: Callable[[StrategyEventResult], None] | None = None,
 ) -> StrategySummary:
     config = _build_config(args, timeframe_minutes)
@@ -282,9 +290,21 @@ async def _run_strategy_for_timeframe(
             rtds_client=RtdsClient(),
             clob_client=ClobClient(),
             logger=logger,
+            stake_provider=stake_provider,
             on_event_closed=on_event_closed,
         )
         return await runner.run(config)
+
+
+def _compute_even_tradable_bankroll(bankroll_usd: float) -> int:
+    integer_bankroll = max(0, int(bankroll_usd))
+    if integer_bankroll % 2 == 1:
+        integer_bankroll -= 1
+    return integer_bankroll
+
+
+def _compute_per_market_stake(bankroll_usd: float) -> float:
+    return float(_compute_even_tradable_bankroll(bankroll_usd) // 2)
 
 
 async def _run_both_timeframes(args: argparse.Namespace) -> int:
@@ -312,11 +332,21 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
         echo_to_console=echo_to_console,
     )
     previous_cumulative = _load_previous_cumulative_summary(args.result_log_file_path)
+    bankroll_usd = float(args.initial_bankroll_usd)
     running_5m = _empty_summary()
     running_15m = _empty_summary()
     result_logger("mode: run_both_timeframes")
     if alerts_enabled:
         result_logger(f"alerts_file: {args.alerts_file_path}")
+    result_logger(
+        "bankroll_start: "
+        f"bankroll_usd={bankroll_usd:.2f}, "
+        f"tradable_even_usd={_compute_even_tradable_bankroll(bankroll_usd)}, "
+        f"stake_per_market_usd={_compute_per_market_stake(bankroll_usd):.2f}"
+    )
+
+    def _shared_stake_provider(_market: EventMarketInfo) -> float:
+        return _compute_per_market_stake(bankroll_usd)
 
     def _log_running_totals() -> None:
         running_total = _merge_summaries(running_5m, running_15m)
@@ -340,7 +370,7 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
 
     def _build_event_handler(timeframe_minutes: int) -> Callable[[StrategyEventResult], None]:
         def _handle_event(event: StrategyEventResult) -> None:
-            nonlocal running_5m, running_15m
+            nonlocal bankroll_usd, running_5m, running_15m
             delta = _summary_from_event_result(event)
             if timeframe_minutes == 5:
                 running_5m = _merge_summaries(running_5m, delta)
@@ -348,12 +378,22 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
             else:
                 running_15m = _merge_summaries(running_15m, delta)
                 timeframe_running = running_15m
+            bankroll_usd += event.profit_usd
             result_logger(
                 "result_event: "
                 f"timeframe={timeframe_minutes}m, "
                 f"slug={event.event_slug}, "
                 f"result={event.result}, "
+                f"stake_usd={event.stake_usd:.2f}, "
                 f"profit_usd={event.profit_usd:.2f}"
+            )
+            result_logger(
+                "bankroll_update: "
+                f"timeframe={timeframe_minutes}m, "
+                f"slug={event.event_slug}, "
+                f"bankroll_usd={bankroll_usd:.2f}, "
+                f"tradable_even_usd={_compute_even_tradable_bankroll(bankroll_usd)}, "
+                f"stake_per_market_usd={_compute_per_market_stake(bankroll_usd):.2f}"
             )
             result_logger(
                 "result_running: "
@@ -375,6 +415,7 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                 args=args,
                 timeframe_minutes=5,
                 logger=logger_5m,
+                stake_provider=_shared_stake_provider,
                 on_event_closed=_build_event_handler(5),
             )
         )
@@ -383,6 +424,7 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                 args=args,
                 timeframe_minutes=15,
                 logger=logger_15m,
+                stake_provider=_shared_stake_provider,
                 on_event_closed=_build_event_handler(15),
             )
         )
@@ -439,6 +481,12 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
             f"lose={cumulative.losses}, "
             f"skip={cumulative.skips}, "
             f"profit_usd={cumulative.total_profit_usd:.2f}"
+        )
+        result_logger(
+            "bankroll_final: "
+            f"bankroll_usd={bankroll_usd:.2f}, "
+            f"tradable_even_usd={_compute_even_tradable_bankroll(bankroll_usd)}, "
+            f"stake_per_market_usd={_compute_per_market_stake(bankroll_usd):.2f}"
         )
     finally:
         if alert_5m is not None:

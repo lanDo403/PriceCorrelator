@@ -49,6 +49,7 @@ python3.10 -m venv .venv
   --run-both-timeframes \
   --no-console-output \
   --duration-seconds 120 \
+  --initial-bankroll-usd 100 \
   --log-file-path-5m ./logs/strategy_test_5.log \
   --log-file-path-15m ./logs/strategy_test_15.log \
   --result-log-file-path ./logs/strategy_test_result.log
@@ -144,7 +145,7 @@ services:
     command: -config.file=/etc/promtail/config.yml
     volumes:
       - ./promtail-config.yml:/etc/promtail/config.yml:ro
-      - /home/<user>/apps/PriceCorrelator/logs:/var/log/price_correlator:ro
+      - /root/apps/PriceCorrelator/logs:/var/log/price_correlator:ro
       - promtail-data:/tmp
     depends_on:
       - loki

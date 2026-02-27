@@ -19,6 +19,7 @@ def test_build_parser_alert_options_defaults() -> None:
     assert args.no_console_output is False
     assert args.market_timeframe_minutes == 5
     assert args.run_both_timeframes is False
+    assert args.initial_bankroll_usd == 100.0
     assert args.log_file_path == Path("logs/price_correlator.log")
     assert args.log_file_path_5m == Path("logs/strategy_test_5.log")
     assert args.log_file_path_15m == Path("logs/strategy_test_15.log")
@@ -37,6 +38,16 @@ def test_build_parser_accepts_run_both_timeframes_flag() -> None:
     parser = build_parser()
     args = parser.parse_args(["--run-both-timeframes"])
     assert args.run_both_timeframes is True
+
+
+def test_bankroll_to_even_split_helpers() -> None:
+    assert cli_module._compute_even_tradable_bankroll(100.5) == 100
+    assert cli_module._compute_even_tradable_bankroll(101.9) == 100
+    assert cli_module._compute_even_tradable_bankroll(102.0) == 102
+    assert cli_module._compute_even_tradable_bankroll(-1.0) == 0
+    assert cli_module._compute_per_market_stake(100.5) == 50.0
+    assert cli_module._compute_per_market_stake(101.9) == 50.0
+    assert cli_module._compute_per_market_stake(102.0) == 51.0
 
 
 def test_alert_logger_writes_only_warning_messages() -> None:
@@ -158,6 +169,7 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
                         end_timestamp_s=123,
                         result="win",
                         profit_usd=10.0,
+                        stake_usd=50.0,
                     )
                 )
             if config.market_timeframe_minutes == 5:
@@ -179,6 +191,7 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
         price_threshold_4s_usd=40.0,
         price_threshold_near_end_usd=30.0,
         stake_usd=100.0,
+        initial_bankroll_usd=100.0,
         log_file_path=test_dir / "unused_single.log",
         log_file_path_5m=log_5m,
         log_file_path_15m=log_15m,
@@ -203,9 +216,13 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
     assert not any("old15" in line for line in log_15m_lines)
     assert any("result: timeframe=5m, events=2" in line for line in result_lines)
     assert any("result: timeframe=15m, events=3" in line for line in result_lines)
-    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win, profit_usd=10.00" in line for line in result_lines)
-    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win, profit_usd=10.00" in line for line in result_lines)
+    assert any("bankroll_start: bankroll_usd=100.00, tradable_even_usd=100, stake_per_market_usd=50.00" in line for line in result_lines)
+    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win, stake_usd=50.00, profit_usd=10.00" in line for line in result_lines)
+    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win, stake_usd=50.00, profit_usd=10.00" in line for line in result_lines)
+    assert any("bankroll_update: timeframe=5m, slug=btc-updown-5m-123, bankroll_usd=110.00, tradable_even_usd=110, stake_per_market_usd=55.00" in line for line in result_lines)
+    assert any("bankroll_update: timeframe=15m, slug=btc-updown-15m-123, bankroll_usd=120.00, tradable_even_usd=120, stake_per_market_usd=60.00" in line for line in result_lines)
     assert any("result_total_running:" in line for line in result_lines)
     assert any("result_total_cumulative_running:" in line for line in result_lines)
     assert any("result_total: events=5, win=3, lose=2, skip=0, profit_usd=30.00" in line for line in result_lines)
     assert any("result_total_cumulative: events=15, win=9, lose=6, skip=0, profit_usd=141.00" in line for line in result_lines)
+    assert any("bankroll_final: bankroll_usd=120.00, tradable_even_usd=120, stake_per_market_usd=60.00" in line for line in result_lines)

@@ -75,6 +75,7 @@ class StrategyEventResult:
     end_timestamp_s: int
     result: str
     profit_usd: float
+    stake_usd: float
 
 
 @dataclass
@@ -84,6 +85,7 @@ class _EventState:
     entry_price: float | None = None
     entry_side: str | None = None
     entry_yes_price: float | None = None
+    entry_stake_usd: float | None = None
     final_price: float | None = None
     entered: bool = False
     result: str = "pending"
@@ -101,6 +103,7 @@ class StrategyRunner:
         rtds_client: RtdsClient,
         clob_client: ClobClient,
         logger: Callable[[str], None] = print,
+        stake_provider: Callable[[EventMarketInfo], float] | None = None,
         on_event_closed: Callable[[StrategyEventResult], None] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         now_seconds: Callable[[], int] = lambda: int(time.time()),
@@ -112,6 +115,7 @@ class StrategyRunner:
         self._rtds_client = rtds_client
         self._clob_client = clob_client
         self._log = logger
+        self._stake_provider = stake_provider
         self._on_event_closed = on_event_closed
         self._monotonic = monotonic
         self._now_seconds = now_seconds
@@ -215,6 +219,7 @@ class StrategyRunner:
                             end_timestamp_s=state.market.end_timestamp_s,
                             result=state.result,
                             profit_usd=state.profit_usd,
+                            stake_usd=state.entry_stake_usd or 0.0,
                         )
                     )
 
@@ -469,10 +474,26 @@ class StrategyRunner:
             state.reason = "invalid_taker_price"
             return
 
+        stake_usd = config.stake_usd
+        if self._stake_provider is not None:
+            try:
+                stake_usd = float(self._stake_provider(state.market))
+            except Exception as exc:  # noqa: BLE001
+                self._log(
+                    f"warning: stake provider failed for slug={state.market.slug}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                state.reason = f"stake_provider_error:{type(exc).__name__}"
+                return
+        if stake_usd <= 0:
+            state.reason = "insufficient_stake"
+            return
+
         state.entered = True
         state.entry_side = side
         state.entry_price = tick.price
         state.entry_yes_price = best_ask
+        state.entry_stake_usd = stake_usd
         state.reason = "filled"
 
     @staticmethod
@@ -493,11 +514,12 @@ class StrategyRunner:
             return
 
         assert state.entry_yes_price is not None
-        shares = config.stake_usd / state.entry_yes_price
+        stake_usd = state.entry_stake_usd if state.entry_stake_usd is not None else config.stake_usd
+        shares = stake_usd / state.entry_yes_price
         is_up_win = state.final_price >= state.price_to_beat
         is_win = is_up_win if state.entry_side == "up" else not is_up_win
         payout = shares if is_win else 0.0
-        state.profit_usd = payout - config.stake_usd
+        state.profit_usd = payout - stake_usd
         state.result = "win" if is_win else "lose"
         if not state.reason:
             state.reason = "filled"

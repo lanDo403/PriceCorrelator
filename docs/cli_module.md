@@ -14,6 +14,7 @@ Key arguments:
 - `--price-threshold-4s-usd` (threshold for 4 seconds remaining)
 - `--price-threshold-near-end-usd` (threshold for 3/2/1 seconds remaining)
 - `--stake-usd`
+- `--initial-bankroll-usd` (shared bankroll for dual-timeframe mode)
 - `--log-file-path`
 - `--log-file-path-5m`
 - `--log-file-path-15m`
@@ -27,6 +28,10 @@ Log behavior in dual-timeframe mode:
 - `--log-file-path-5m` and `--log-file-path-15m` are truncated on startup.
 - `--result-log-file-path` stays append-only.
 - cumulative totals are persisted in `result_total_cumulative`.
+- dual mode logs bankroll lifecycle:
+  - `bankroll_start`
+  - `bankroll_update`
+  - `bankroll_final`
 
 Code file:
 

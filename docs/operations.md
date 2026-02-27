@@ -8,6 +8,10 @@
 - In dual-timeframe mode:
   - `logs/strategy_test_5.log` and `logs/strategy_test_15.log` are reset each start.
   - `logs/strategy_test_result.log` is append-only and stores cumulative totals.
+  - bankroll lines are written to `logs/strategy_test_result.log`:
+    - `bankroll_start`
+    - `bankroll_update`
+    - `bankroll_final`
 
 ## Alerts
 

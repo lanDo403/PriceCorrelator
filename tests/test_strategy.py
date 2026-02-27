@@ -87,6 +87,65 @@ async def test_strategy_runner_single_event_win() -> None:
     assert any("| up | 0.500000 | win | 100.00 | filled |" in log for log in logs)
 
 
+@pytest.mark.asyncio
+async def test_strategy_runner_uses_dynamic_stake_provider_per_event() -> None:
+    logs: list[str] = []
+    runner = StrategyRunner(
+        event_client=_FakeEventClient(),
+        rtds_client=_FakeRtdsClient(),
+        clob_client=_FakeClobClient(),
+        logger=logs.append,
+        stake_provider=lambda _market: 50.0,
+        now_seconds=lambda: 0,
+    )
+    summary = await runner.run(
+        StrategyConfig(
+            symbol_pair="BTC/USD",
+            duration_seconds=1200,
+            entry_seconds_before_end=5,
+            final_price_delay_seconds=2,
+            threshold_usd=50.0,
+            threshold_4s_usd=40.0,
+            threshold_near_end_usd=30.0,
+            stake_usd=100.0,
+        )
+    )
+
+    assert summary.total_events == 1
+    assert summary.wins == 1
+    assert summary.total_profit_usd == 50.0
+    assert any("| up | 0.500000 | win | 50.00 | filled |" in log for log in logs)
+
+
+@pytest.mark.asyncio
+async def test_strategy_runner_skips_when_dynamic_stake_is_zero() -> None:
+    logs: list[str] = []
+    runner = StrategyRunner(
+        event_client=_FakeEventClient(),
+        rtds_client=_FakeRtdsClient(),
+        clob_client=_FakeClobClient(),
+        logger=logs.append,
+        stake_provider=lambda _market: 0.0,
+        now_seconds=lambda: 0,
+    )
+    summary = await runner.run(
+        StrategyConfig(
+            symbol_pair="BTC/USD",
+            duration_seconds=1200,
+            entry_seconds_before_end=5,
+            final_price_delay_seconds=2,
+            threshold_usd=50.0,
+            threshold_4s_usd=40.0,
+            threshold_near_end_usd=30.0,
+            stake_usd=100.0,
+        )
+    )
+
+    assert summary.total_events == 1
+    assert summary.skips == 1
+    assert any("| skip | 0.00 | insufficient_stake |" in log for log in logs)
+
+
 class _FakeRtdsClientDown:
     async def stream_ticks(self, symbol_pair: str):
         assert symbol_pair == "BTC/USD"
