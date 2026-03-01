@@ -78,6 +78,16 @@ class StrategyEventResult:
     profit_usd: float
     stake_usd: float
     fee_usd: float
+    reason: str = ""
+    price_to_beat: float | None = None
+    entry_price: float | None = None
+    final_price: float | None = None
+    entry_side: str | None = None
+    entry_yes_price: float | None = None
+    entry_timestamp_ms: int | None = None
+    entry_seconds_to_end: int | None = None
+    entry_threshold_usd: float | None = None
+    entry_gap_usd: float | None = None
 
 
 @dataclass
@@ -88,6 +98,10 @@ class _EventState:
     entry_side: str | None = None
     entry_yes_price: float | None = None
     entry_stake_usd: float | None = None
+    entry_timestamp_ms: int | None = None
+    entry_seconds_to_end: int | None = None
+    entry_threshold_usd: float | None = None
+    entry_gap_usd: float | None = None
     entry_taker_fee_rate: float = 0.0
     final_price: float | None = None
     entered: bool = False
@@ -225,6 +239,16 @@ class StrategyRunner:
                             profit_usd=state.profit_usd,
                             stake_usd=state.entry_stake_usd or 0.0,
                             fee_usd=state.fee_usd,
+                            reason=state.reason,
+                            price_to_beat=state.price_to_beat,
+                            entry_price=state.entry_price,
+                            final_price=state.final_price,
+                            entry_side=state.entry_side,
+                            entry_yes_price=state.entry_yes_price,
+                            entry_timestamp_ms=state.entry_timestamp_ms,
+                            entry_seconds_to_end=state.entry_seconds_to_end,
+                            entry_threshold_usd=state.entry_threshold_usd,
+                            entry_gap_usd=state.entry_gap_usd,
                         )
                     )
 
@@ -530,8 +554,26 @@ class StrategyRunner:
         state.entry_price = tick.price
         state.entry_yes_price = best_ask
         state.entry_stake_usd = stake_usd
+        state.entry_timestamp_ms = tick.source_timestamp_ms
+        state.entry_seconds_to_end = remaining_s
+        state.entry_threshold_usd = threshold
+        state.entry_gap_usd = price_delta
         state.entry_taker_fee_rate = taker_fee_rate
         state.reason = "filled"
+        self._log(
+            "entry_opened: "
+            f"slug={state.market.slug}, "
+            f"end_utc={_format_utc(state.market.end_timestamp_s)}, "
+            f"entry_ts_utc={_format_utc_ms(tick.source_timestamp_ms)}, "
+            f"seconds_to_end={remaining_s}, "
+            f"threshold_usd={threshold:.2f}, "
+            f"gap_usd={price_delta:.2f}, "
+            f"side={side}, "
+            f"price_to_beat={state.price_to_beat:.2f}, "
+            f"entry_price={tick.price:.2f}, "
+            f"entry_yes_price={best_ask:.6f}, "
+            f"stake_usd={stake_usd:.2f}"
+        )
 
     @staticmethod
     def _finalize_event(state: _EventState, final_price: float, config: StrategyConfig) -> None:
@@ -623,6 +665,13 @@ def _format_utc(timestamp_s: int | None) -> str:
         return "-"
     dt = datetime.fromtimestamp(timestamp_s, tz=timezone.utc)
     return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _format_utc_ms(timestamp_ms: int | None) -> str:
+    if timestamp_ms is None:
+        return "-"
+    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " UTC"
 
 
 def _format_price(value: float | None) -> str:

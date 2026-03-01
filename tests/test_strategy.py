@@ -99,6 +99,50 @@ async def test_strategy_runner_single_event_win() -> None:
 
 
 @pytest.mark.asyncio
+async def test_strategy_runner_logs_entry_context_and_emits_detailed_event_result() -> None:
+    logs: list[str] = []
+    closed_events: list[object] = []
+    runner = StrategyRunner(
+        event_client=_FakeEventClient(),
+        rtds_client=_FakeRtdsClient(),
+        clob_client=_FakeClobClient(),
+        logger=logs.append,
+        on_event_closed=closed_events.append,
+        now_seconds=lambda: 0,
+    )
+
+    summary = await runner.run(
+        StrategyConfig(
+            symbol_pair="BTC/USD",
+            duration_seconds=1200,
+            entry_seconds_before_end=5,
+            final_price_delay_seconds=2,
+            threshold_usd=50.0,
+            threshold_4s_usd=40.0,
+            threshold_near_end_usd=30.0,
+            stake_usd=100.0,
+        )
+    )
+
+    assert summary.total_events == 1
+    assert any("entry_opened: slug=btc-updown-5m-300" in log for log in logs)
+    assert any("seconds_to_end=5" in log for log in logs if log.startswith("entry_opened:"))
+    assert any("stake_usd=100.00" in log for log in logs if log.startswith("entry_opened:"))
+    assert len(closed_events) == 1
+    event = closed_events[0]
+    assert event.entry_side == "up"
+    assert event.reason == "filled"
+    assert event.entry_timestamp_ms == 295_000
+    assert event.entry_seconds_to_end == 5
+    assert event.entry_threshold_usd == 50.0
+    assert event.entry_gap_usd == 60.0
+    assert event.price_to_beat == 100_000.0
+    assert event.entry_price == 100_060.0
+    assert event.final_price == 100_070.0
+    assert event.entry_yes_price == 0.5
+
+
+@pytest.mark.asyncio
 async def test_strategy_runner_uses_dynamic_stake_provider_per_event() -> None:
     logs: list[str] = []
     runner = StrategyRunner(

@@ -98,6 +98,31 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _format_optional_float(value: float | None, precision: int = 2) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.{precision}f}"
+
+
+def _format_optional_int(value: int | None) -> str:
+    if value is None:
+        return "-"
+    return str(value)
+
+
+def _format_optional_text(value: str | None) -> str:
+    if value is None or value == "":
+        return "-"
+    return value
+
+
+def _format_optional_utc_ms(timestamp_ms: int | None) -> str:
+    if timestamp_ms is None:
+        return "-"
+    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " UTC"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="price-correlator",
@@ -558,6 +583,17 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                 f"timeframe={timeframe_minutes}m, "
                 f"slug={event.event_slug}, "
                 f"result={event.result}, "
+                f"side={_format_optional_text(event.entry_side)}, "
+                f"reason={_format_optional_text(event.reason)}, "
+                f"end_utc={datetime.fromtimestamp(event.end_timestamp_s, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}, "
+                f"entry_ts_utc={_format_optional_utc_ms(event.entry_timestamp_ms)}, "
+                f"entry_seconds_to_end={_format_optional_int(event.entry_seconds_to_end)}, "
+                f"entry_threshold_usd={_format_optional_float(event.entry_threshold_usd)}, "
+                f"entry_gap_usd={_format_optional_float(event.entry_gap_usd)}, "
+                f"price_to_beat={_format_optional_float(event.price_to_beat)}, "
+                f"entry_price={_format_optional_float(event.entry_price)}, "
+                f"entry_yes_price={_format_optional_float(event.entry_yes_price, precision=6)}, "
+                f"final_price={_format_optional_float(event.final_price)}, "
                 f"stake_usd={event.stake_usd:.2f}, "
                 f"fee_usd={event.fee_usd:.4f}, "
                 f"profit_usd={event.profit_usd:.2f}"
@@ -572,6 +608,16 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                     "event_slug": event.event_slug,
                     "event_end_timestamp_s": event.end_timestamp_s,
                     "result": event.result,
+                    "side": event.entry_side,
+                    "reason": event.reason,
+                    "entry_timestamp_ms": event.entry_timestamp_ms,
+                    "entry_seconds_to_end": event.entry_seconds_to_end,
+                    "entry_threshold_usd": event.entry_threshold_usd,
+                    "entry_gap_usd": event.entry_gap_usd,
+                    "price_to_beat": event.price_to_beat,
+                    "entry_price": event.entry_price,
+                    "entry_yes_price": event.entry_yes_price,
+                    "final_price": event.final_price,
                     "stake_usd": event.stake_usd,
                     "fee_usd": event.fee_usd,
                     "profit_usd": event.profit_usd,
@@ -585,6 +631,16 @@ async def _run_both_timeframes(args: argparse.Namespace) -> int:
                     "event_slug": event.event_slug,
                     "event_end_timestamp_s": event.end_timestamp_s,
                     "result": event.result,
+                    "side": event.entry_side,
+                    "reason": event.reason,
+                    "entry_timestamp_ms": event.entry_timestamp_ms,
+                    "entry_seconds_to_end": event.entry_seconds_to_end,
+                    "entry_threshold_usd": event.entry_threshold_usd,
+                    "entry_gap_usd": event.entry_gap_usd,
+                    "price_to_beat": event.price_to_beat,
+                    "entry_price": event.entry_price,
+                    "entry_yes_price": event.entry_yes_price,
+                    "final_price": event.final_price,
                     "stake_usd": event.stake_usd,
                     "fee_usd": event.fee_usd,
                     "profit_usd": event.profit_usd,

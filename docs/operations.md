@@ -9,6 +9,7 @@
   - `logs/strategy_test_5.log` and `logs/strategy_test_15.log` are reset each start.
   - `logs/strategy_test_5.jsonl` and `logs/strategy_test_15.jsonl` are reset each start.
   - `logs/strategy_test_5.log` and `logs/strategy_test_15.log` emit structured key-value lines (`result_*`, `bankroll_*`) for their own timeframe.
+  - `result_event` lines include full entry/exit diagnostics (`entry_ts_utc`, `entry_seconds_to_end`, `entry_threshold_usd`, `entry_gap_usd`, `side`, `price_to_beat`, `entry_price`, `entry_yes_price`, `final_price`, `reason`).
   - `logs/strategy_test_5.jsonl` and `logs/strategy_test_15.jsonl` emit structured JSON lines (`result_*`, `bankroll_*`, `warning`).
   - `logs/strategy_test_result.log` is append-only and stores cumulative totals.
   - `logs/strategy_test_result.jsonl` stores structured event/bankroll/result entries.

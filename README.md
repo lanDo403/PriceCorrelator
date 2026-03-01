@@ -35,6 +35,17 @@ Per-event log fields:
   - `result_running` per timeframe,
   - `result_total_running` and `result_total_cumulative_running` across both timeframes.
 - `strategy_test_5.log` and `strategy_test_15.log` use the same key-value event format (`result_*`, `bankroll_*`) for their own timeframe.
+- `result_event` now includes trade diagnostics:
+  - `entry_ts_utc`,
+  - `entry_seconds_to_end`,
+  - `entry_threshold_usd`,
+  - `entry_gap_usd`,
+  - `side`,
+  - `price_to_beat`,
+  - `entry_price`,
+  - `entry_yes_price`,
+  - `final_price`,
+  - `reason`.
 - In dual mode stake is dynamic from shared bankroll:
   - start from `--initial-bankroll-usd`,
   - use only even integer part of bankroll,

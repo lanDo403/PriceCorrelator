@@ -178,6 +178,16 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
                         profit_usd=10.0,
                         stake_usd=50.0,
                         fee_usd=0.0,
+                        reason="filled",
+                        price_to_beat=100_000.0,
+                        entry_price=100_050.0,
+                        final_price=100_070.0,
+                        entry_side="up",
+                        entry_yes_price=0.5,
+                        entry_timestamp_ms=119_000,
+                        entry_seconds_to_end=4,
+                        entry_threshold_usd=40.0,
+                        entry_gap_usd=50.0,
                     )
                 )
             if config.market_timeframe_minutes == 5:
@@ -230,14 +240,20 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
     assert not any("old15" in line for line in log_15m_lines)
     assert any("bankroll_start: bankroll_usd=100.00, tradable_even_usd=100, stake_per_market_usd=50.00" in line for line in log_5m_lines)
     assert any("bankroll_start: bankroll_usd=100.00, tradable_even_usd=100, stake_per_market_usd=50.00" in line for line in log_15m_lines)
-    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win, stake_usd=50.00, fee_usd=0.0000, profit_usd=10.00" in line for line in log_5m_lines)
-    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win, stake_usd=50.00, fee_usd=0.0000, profit_usd=10.00" in line for line in log_15m_lines)
+    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win" in line for line in log_5m_lines)
+    assert any("entry_seconds_to_end=4" in line for line in log_5m_lines if line.startswith("result_event:"))
+    assert any("price_to_beat=100000.00" in line for line in log_5m_lines if line.startswith("result_event:"))
+    assert any("final_price=100070.00" in line for line in log_5m_lines if line.startswith("result_event:"))
+    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win" in line for line in log_15m_lines)
+    assert any("entry_seconds_to_end=4" in line for line in log_15m_lines if line.startswith("result_event:"))
     assert any("result_jsonl_file:" in line for line in result_lines)
     assert any("result: timeframe=5m, events=2" in line for line in result_lines)
     assert any("result: timeframe=15m, events=3" in line for line in result_lines)
     assert any("bankroll_start: bankroll_usd=100.00, tradable_even_usd=100, stake_per_market_usd=50.00" in line for line in result_lines)
-    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win, stake_usd=50.00, fee_usd=0.0000, profit_usd=10.00" in line for line in result_lines)
-    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win, stake_usd=50.00, fee_usd=0.0000, profit_usd=10.00" in line for line in result_lines)
+    assert any("result_event: timeframe=5m, slug=btc-updown-5m-123, result=win" in line for line in result_lines)
+    assert any("entry_ts_utc=1970-01-01 00:01:59.000 UTC" in line for line in result_lines if line.startswith("result_event: timeframe=5m"))
+    assert any("entry_yes_price=0.500000" in line for line in result_lines if line.startswith("result_event: timeframe=5m"))
+    assert any("result_event: timeframe=15m, slug=btc-updown-15m-123, result=win" in line for line in result_lines)
     assert any("bankroll_update: timeframe=5m, slug=btc-updown-5m-123, bankroll_usd=110.00, tradable_even_usd=110, stake_per_market_usd=55.00" in line for line in result_lines)
     assert any("bankroll_update: timeframe=15m, slug=btc-updown-15m-123, bankroll_usd=120.00, tradable_even_usd=120, stake_per_market_usd=60.00" in line for line in result_lines)
     assert any("result_total_running:" in line for line in result_lines)
@@ -246,9 +262,13 @@ async def test_run_from_args_both_timeframes_writes_split_and_result_logs(
     assert any("result_total_cumulative: events=15, win=9, lose=6, skip=0, profit_usd=141.00" in line for line in result_lines)
     assert any("bankroll_final: bankroll_usd=120.00, tradable_even_usd=120, stake_per_market_usd=60.00" in line for line in result_lines)
     assert any('"type": "result_event"' in line for line in result_jsonl_lines)
+    assert any('"entry_seconds_to_end": 4' in line for line in result_jsonl_lines)
+    assert any('"price_to_beat": 100000.0' in line for line in result_jsonl_lines)
     assert any('"type": "bankroll_start"' in line for line in result_jsonl_lines)
     assert any('"type": "result_total_cumulative"' in line for line in result_jsonl_lines)
     assert any('"type": "result_event"' in line for line in jsonl_5m_lines)
     assert any('"type": "result_event"' in line for line in jsonl_15m_lines)
+    assert any('"entry_seconds_to_end": 4' in line for line in jsonl_5m_lines)
+    assert any('"entry_seconds_to_end": 4' in line for line in jsonl_15m_lines)
     assert any('"timeframe": 5' in line for line in jsonl_5m_lines)
     assert any('"timeframe": 15' in line for line in jsonl_15m_lines)
